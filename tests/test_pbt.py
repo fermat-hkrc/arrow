@@ -26,15 +26,16 @@ valid_bounds = st.sampled_from(["()", "(]", "[)", "[]"])
 
 # Generate a valid (year, month, day) triple by drawing a date and extracting components
 @st.composite
-def valid_date_components(draw):
-    d = draw(st.dates(min_value=stdlib_datetime.date(1, 1, 1), max_value=stdlib_datetime.date(9999, 12, 31)))
+def valid_date_components(draw, max_year: int = 9999):
+    d = draw(st.dates(min_value=stdlib_datetime.date(1, 1, 1), max_value=stdlib_datetime.date(max_year, 12, 31)))
     return d.year, d.month, d.day
 
 
 @st.composite
 def arrow_objects(draw):
     """Strategy that builds an Arrow object from valid date+time components."""
-    year, month, day = draw(valid_date_components())
+    # Year capped at 9998: floor/ceil/span on year 9999 shifts by +1 year which overflows
+    year, month, day = draw(valid_date_components(max_year=9998))
     hour = draw(hours)
     minute = draw(minutes_s)
     second = draw(seconds_s)
@@ -51,10 +52,11 @@ safe_timestamps = st.floats(
 )
 
 # ISO 8601 week-date components: broad year range, valid week and day numbers
+# Year capped at 9998: year 9999 week 52 day 6+ overflows datetime.date.max
 @st.composite
 def iso_week_date(draw):
-    year = draw(st.integers(min_value=1, max_value=9999))
-    week = draw(st.integers(min_value=1, max_value=52))  # 52 is safe for all years
+    year = draw(st.integers(min_value=1, max_value=9998))
+    week = draw(st.integers(min_value=1, max_value=52))  # 52 is safe for years up to 9998
     day = draw(st.integers(min_value=1, max_value=7))
     return year, week, day
 

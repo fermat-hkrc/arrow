@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from run_mutmut_bruteforce import TARGET_IDS, Mutant, MutationResult, MutationSummary, discover_mutants, filter_mutants_to_targets, generate_mutants, limit_mutants_in_metadata, limit_mutants_per_target_in_metadata, limit_mutants_to_target_in_metadata, mutant_function_key, normalize_target_id, pytest_command, run_pytest_suite, score_mutants, source_files_for_targets, summarize_results, write_results
+from run_mutmut_bruteforce import TARGET_IDS, Mutant, MutationResult, MutationSummary, check_baseline, discover_mutants, filter_mutants_to_targets, generate_mutants, limit_mutants_in_metadata, limit_mutants_per_target_in_metadata, limit_mutants_to_target_in_metadata, mutant_function_key, normalize_target_id, pytest_command, run_pytest_suite, score_mutants, source_files_for_targets, summarize_results, write_results
 
 
 def test_target_allowlist_contains_expected_top_level_ids():
@@ -126,7 +126,16 @@ def test_limit_mutants_to_target_in_metadata_keeps_only_one_target(tmp_path: Pat
     ]
 
 
-def test_summarize_results_excludes_errors_from_score_denominator():
+
+def test_check_baseline_raises_when_suite_fails(monkeypatch):
+    monkeypatch.setattr("run_mutmut_bruteforce.run_pytest_suite", lambda timeout_seconds: ("killed", 1.0, "FAILED"))
+    with pytest.raises(SystemExit, match="Baseline"):
+        check_baseline()
+
+
+def test_check_baseline_passes_when_suite_green(monkeypatch):
+    monkeypatch.setattr("run_mutmut_bruteforce.run_pytest_suite", lambda timeout_seconds: ("survived", 1.0, "passed"))
+    check_baseline()  # must not raise
     results = [
         MutationResult("a", Path("arrow/util.py"), "killed", 1.0),
         MutationResult("b", Path("arrow/util.py"), "survived", 1.0),
@@ -179,6 +188,7 @@ def test_score_mutants_restores_file_after_each_mutant(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr("run_mutmut_bruteforce.apply_mutant", lambda name: source.write_text("mutated\n"))
     monkeypatch.setattr("run_mutmut_bruteforce.run_pytest_suite", lambda timeout_seconds: ("killed", 0.1, "failed"))
+    monkeypatch.setattr("run_mutmut_bruteforce.check_baseline", lambda: None)
 
     results, summary = score_mutants(mutants_dir=mutants_dir, timeout_seconds=5, project_root=tmp_path)
 

@@ -301,12 +301,19 @@ def apply_mutant(mutant_name: str) -> None:
     subprocess.run([sys.executable, "-m", "mutmut", "apply", mutant_name], check=True)
 
 
+def check_baseline(timeout_seconds: int = 60) -> None:
+    status, _, detail = run_pytest_suite(timeout_seconds)
+    if status != "survived":
+        raise SystemExit(f"Baseline suite failed — fix tests before scoring.\n{detail}")
+
+
 def score_mutants(
     mutants_dir: Path = MUTANTS_DIR,
     timeout_seconds: int = 300,
     limit: int | None = None,
     project_root: Path = Path("."),
 ) -> tuple[list[MutationResult], MutationSummary]:
+    check_baseline()
     all_mutants = discover_mutants(mutants_dir)
     retained, _ = filter_mutants_to_targets(all_mutants)
     if limit is not None:
