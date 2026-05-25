@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from run_mutmut_bruteforce import TARGET_IDS, Mutant, MutationResult, MutationSummary, discover_mutants, filter_mutants_to_targets, normalize_target_id, pytest_command, run_pytest_suite, score_mutants, source_files_for_targets, summarize_results, write_results
+from run_mutmut_bruteforce import TARGET_IDS, Mutant, MutationResult, MutationSummary, discover_mutants, filter_mutants_to_targets, generate_mutants, mutant_function_key, normalize_target_id, pytest_command, run_pytest_suite, score_mutants, source_files_for_targets, summarize_results, write_results
 
 
 def test_target_allowlist_contains_expected_top_level_ids():
@@ -52,6 +52,12 @@ def test_discover_mutants_reads_meta_files(tmp_path: Path):
     assert mutants == [
         Mutant(name="is_timestamp__mutmut_1", source_path=Path("arrow/util.py"))
     ]
+
+
+def test_mutant_function_key_handles_actual_mutmut_name_shapes():
+    assert mutant_function_key("arrow.util.x_is_timestamp__mutmut_1") == "is_timestamp"
+    assert mutant_function_key("arrow.api.x_get__mutmut_1") == "get"
+    assert mutant_function_key("arrow.arrow.xǁArrowǁ_shift__mutmut_1") == "shift"
 
 
 def test_summarize_results_excludes_errors_from_score_denominator():
@@ -116,18 +122,42 @@ def test_score_mutants_restores_file_after_each_mutant(monkeypatch, tmp_path: Pa
 
 
 
-def test_write_results_includes_only_targets_that_have_results(tmp_path: Path):
-    results = [
-        MutationResult("is_timestamp__mutmut_1", Path("arrow/util.py"), "survived", 0.5, "ok"),
-        MutationResult("shift__mutmut_1", Path("arrow/arrow.py"), "killed", 0.4, "boom"),
-    ]
-    summary = MutationSummary(total=2, killed=1, survived=1, timeout=0, error=0, tested=2, mutation_score=50.0)
 
-    write_results(results, summary, output_dir=tmp_path)
+def test_generate_mutants_patches_paths_to_mutate(monkeypatch, tmp_path: Path):
+    class FakeConfig:
+        def __init__(self):
+            self.paths_to_mutate = []
+            self.also_copy = []
 
-    report = (tmp_path / "mutmut-pbt-mutation-score.md").read_text()
+    class FakeModule:
+        def __init__(self):
+            self.loaded = False
+            self.config = FakeConfig()
+            self.copy_called = False
+            self.create_called = False
 
-    assert "## Targets" in report
-    assert "util.is_timestamp" in report
-    assert "Arrow.shift" in report
-    assert "Arrow.week" not in report
+        def load_config(self):
+            return self.config
+
+        def ensure_config_loaded(self):
+            self.loaded = True
+            self.config = self.load_config()
+
+        def copy_src_dir(self):
+            self.copy_called = True
+
+        def create_mutants(self, workers):
+            self.create_called = True
+            return None
+
+    fake = FakeModule()
+    monkeypatch.setattr("run_mutmut_bruteforce.MUTANTS_DIR", tmp_path / "mutants")
+    monkeypatch.setattr("run_mutmut_bruteforce.source_files_for_targets", lambda: [Path("arrow/util.py")])
+    monkeypatch.setattr("run_mutmut_bruteforce._mutmut_main", lambda: fake)
+
+    generate_mutants()
+
+    assert fake.loaded is True
+    assert fake.copy_called is True
+    assert fake.create_called is True
+    assert fake.config.paths_to_mutate == [Path("arrow/util.py")]

@@ -75,7 +75,13 @@ def source_files_for_targets() -> list[Path]:
 
 
 def mutant_function_key(mutant_name: str) -> str:
-    return mutant_name.rsplit("__mutmut_", 1)[0]
+    key = mutant_name.rsplit("__mutmut_", 1)[0]
+    key = key.rsplit(".", 1)[-1]
+    if key.startswith("x_"):
+        key = key[2:]
+    if "ǁ" in key:
+        key = key.split("ǁ")[-1]
+    return key.strip("_")
 
 
 def normalize_target_id(source_path: Path, function_key: str) -> str | None:
@@ -108,6 +114,30 @@ def discover_mutants(mutants_dir: Path) -> list[Mutant]:
         for name in sorted(data.get("exit_code_by_key", {}).keys()):
             mutants.append(Mutant(name=name, source_path=source_path))
     return mutants
+
+
+def _mutmut_main():
+    import mutmut.__main__ as mm
+
+    return mm
+
+
+def generate_mutants(mutants_dir: Path = MUTANTS_DIR) -> None:
+    mm = _mutmut_main()
+    original_load_config = mm.load_config
+    source_files = source_files_for_targets()
+
+    def patched_load_config():
+        cfg = original_load_config()
+        cfg.paths_to_mutate = source_files
+        cfg.also_copy = []
+        return cfg
+
+    mm.load_config = patched_load_config
+    mm.ensure_config_loaded()
+    mutants_dir.mkdir(parents=True, exist_ok=True)
+    mm.copy_src_dir()
+    mm.create_mutants(1)
 
 
 def summarize_results(results: list[MutationResult]) -> MutationSummary:
@@ -255,7 +285,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "generate":
-        raise SystemExit("generate not implemented yet")
+        generate_mutants()
+        print("generated mutants")
+        return
 
     results, summary = score_mutants(timeout_seconds=args.timeout, limit=args.limit)
     write_results(results, summary)
