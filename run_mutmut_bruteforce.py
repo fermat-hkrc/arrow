@@ -116,13 +116,27 @@ def discover_mutants(mutants_dir: Path) -> list[Mutant]:
     return mutants
 
 
+def limit_mutants_in_metadata(mutants_dir: Path, max_mutants: int) -> list[str]:
+    retained, _ = filter_mutants_to_targets(discover_mutants(mutants_dir))
+    keep_names = {mutant.name for mutant in retained[:max_mutants]}
+    kept_sorted = sorted(keep_names)
+    for meta_path in sorted(mutants_dir.rglob("*.py.meta")):
+        data = json.loads(meta_path.read_text())
+        keys = data.get("exit_code_by_key", {})
+        data["exit_code_by_key"] = {
+            key: value for key, value in sorted(keys.items()) if key in keep_names
+        }
+        meta_path.write_text(json.dumps(data))
+    return kept_sorted
+
+
 def _mutmut_main():
     import mutmut.__main__ as mm
 
     return mm
 
 
-def generate_mutants(mutants_dir: Path = MUTANTS_DIR) -> None:
+def generate_mutants(mutants_dir: Path = MUTANTS_DIR, max_mutants: int | None = None) -> None:
     mm = _mutmut_main()
     original_load_config = mm.load_config
     source_files = source_files_for_targets()
@@ -138,6 +152,9 @@ def generate_mutants(mutants_dir: Path = MUTANTS_DIR) -> None:
     mutants_dir.mkdir(parents=True, exist_ok=True)
     mm.copy_src_dir()
     mm.create_mutants(1)
+    if max_mutants is not None:
+        kept = limit_mutants_in_metadata(mutants_dir, max_mutants)
+        print(f"limited mutants to {len(kept)}")
 
 
 def summarize_results(results: list[MutationResult]) -> MutationSummary:
@@ -278,14 +295,15 @@ def write_results(results: list[MutationResult], summary: MutationSummary, outpu
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("generate")
+    generate = sub.add_parser("generate")
+    generate.add_argument("--max-mutants", type=int)
     score = sub.add_parser("score")
     score.add_argument("--timeout", type=int, default=300)
     score.add_argument("--limit", type=int)
     args = parser.parse_args()
 
     if args.command == "generate":
-        generate_mutants()
+        generate_mutants(max_mutants=args.max_mutants)
         print("generated mutants")
         return
 
