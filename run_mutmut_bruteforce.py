@@ -9,6 +9,36 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
+TARGET_SOURCE_FILES = {
+    "util.is_timestamp": Path("arrow/util.py"),
+    "util.validate_ordinal": Path("arrow/util.py"),
+    "util.normalize_timestamp": Path("arrow/util.py"),
+    "util.validate_bounds": Path("arrow/util.py"),
+    "util.next_weekday": Path("arrow/util.py"),
+    "util.iso_to_gregorian": Path("arrow/util.py"),
+    "arrow.get": Path("arrow/api.py"),
+    "Arrow.fromordinal": Path("arrow/arrow.py"),
+    "Arrow.utcfromtimestamp": Path("arrow/arrow.py"),
+    "Arrow.fromdatetime": Path("arrow/arrow.py"),
+    "Arrow.fromdate": Path("arrow/arrow.py"),
+    "Arrow.strptime": Path("arrow/arrow.py"),
+    "Arrow.clone": Path("arrow/arrow.py"),
+    "Arrow.shift": Path("arrow/arrow.py"),
+    "Arrow.replace": Path("arrow/arrow.py"),
+    "Arrow.floor": Path("arrow/arrow.py"),
+    "Arrow.ceil": Path("arrow/arrow.py"),
+    "Arrow.span": Path("arrow/arrow.py"),
+    "Arrow.is_between": Path("arrow/arrow.py"),
+    "Arrow.to": Path("arrow/arrow.py"),
+    "Arrow.timestamp": Path("arrow/arrow.py"),
+    "Arrow.toordinal": Path("arrow/arrow.py"),
+    "Arrow.format": Path("arrow/arrow.py"),
+    "Arrow.humanize": Path("arrow/arrow.py"),
+    "Arrow.isocalendar": Path("arrow/arrow.py"),
+    "Arrow.utcoffset": Path("arrow/arrow.py"),
+}
+
+
 TARGET_IDS = {
     "util.is_timestamp",
     "util.validate_ordinal",
@@ -70,8 +100,10 @@ class MutationSummary:
     mutation_score: float
 
 
-def source_files_for_targets() -> list[Path]:
-    return [Path("arrow/api.py"), Path("arrow/arrow.py"), Path("arrow/util.py")]
+def source_files_for_targets(target_ids: set[str] | None = None) -> list[Path]:
+    if target_ids is None:
+        return [Path("arrow/api.py"), Path("arrow/arrow.py"), Path("arrow/util.py")]
+    return sorted({TARGET_SOURCE_FILES[target_id] for target_id in target_ids})
 
 
 def mutant_function_key(mutant_name: str) -> str:
@@ -144,6 +176,24 @@ def limit_mutants_in_metadata(mutants_dir: Path, max_mutants: int) -> list[str]:
     return kept_sorted
 
 
+def limit_mutants_to_target_in_metadata(mutants_dir: Path, target_id: str) -> list[str]:
+    retained, _ = filter_mutants_to_targets(discover_mutants(mutants_dir))
+    keep_names = {
+        mutant.name
+        for mutant in retained
+        if normalize_target_id(mutant.source_path, mutant_function_key(mutant.name)) == target_id
+    }
+    kept_sorted = sorted(keep_names)
+    for meta_path in sorted(mutants_dir.rglob("*.py.meta")):
+        data = json.loads(meta_path.read_text())
+        keys = data.get("exit_code_by_key", {})
+        data["exit_code_by_key"] = {
+            key: value for key, value in sorted(keys.items()) if key in keep_names
+        }
+        meta_path.write_text(json.dumps(data))
+    return kept_sorted
+
+
 def limit_mutants_per_target_in_metadata(mutants_dir: Path, max_mutants_per_target: int) -> list[str]:
     retained, _ = filter_mutants_to_targets(discover_mutants(mutants_dir))
     keep_names: set[str] = set()
@@ -178,10 +228,11 @@ def generate_mutants(
     mutants_dir: Path = MUTANTS_DIR,
     max_mutants: int | None = None,
     max_mutants_per_target: int | None = None,
+    target_id: str | None = None,
 ) -> None:
     mm = _mutmut_main()
     original_load_config = mm.load_config
-    source_files = source_files_for_targets()
+    source_files = source_files_for_targets({target_id} if target_id is not None else None)
 
     def patched_load_config():
         cfg = original_load_config()
@@ -194,7 +245,10 @@ def generate_mutants(
     mutants_dir.mkdir(parents=True, exist_ok=True)
     mm.copy_src_dir()
     mm.create_mutants(1)
-    if max_mutants_per_target is not None:
+    if target_id is not None:
+        kept = limit_mutants_to_target_in_metadata(mutants_dir, target_id)
+        print(f"limited mutants to target {target_id}; kept {len(kept)}")
+    elif max_mutants_per_target is not None:
         kept = limit_mutants_per_target_in_metadata(mutants_dir, max_mutants_per_target)
         print(f"limited mutants per target to {max_mutants_per_target}; kept {len(kept)}")
     elif max_mutants is not None:
@@ -343,6 +397,7 @@ def main() -> None:
     generate = sub.add_parser("generate")
     generate.add_argument("--max-mutants", type=int)
     generate.add_argument("--max-mutants-per-target", type=int)
+    generate.add_argument("--target")
     score = sub.add_parser("score")
     score.add_argument("--timeout", type=int, default=300)
     score.add_argument("--limit", type=int)
@@ -352,6 +407,7 @@ def main() -> None:
         generate_mutants(
             max_mutants=args.max_mutants,
             max_mutants_per_target=args.max_mutants_per_target,
+            target_id=args.target,
         )
         print("generated mutants")
         return

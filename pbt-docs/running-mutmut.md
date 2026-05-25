@@ -6,6 +6,7 @@
 python3 run_mutmut_bruteforce.py generate
 python3 run_mutmut_bruteforce.py generate --max-mutants 10
 python3 run_mutmut_bruteforce.py generate --max-mutants-per-target 2
+python3 run_mutmut_bruteforce.py generate --target Arrow.shift
 ```
 
 ## Score mutants
