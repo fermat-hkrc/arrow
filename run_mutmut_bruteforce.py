@@ -130,13 +130,55 @@ def limit_mutants_in_metadata(mutants_dir: Path, max_mutants: int) -> list[str]:
     return kept_sorted
 
 
+def limit_mutants_in_metadata(mutants_dir: Path, max_mutants: int) -> list[str]:
+    retained, _ = filter_mutants_to_targets(discover_mutants(mutants_dir))
+    keep_names = {mutant.name for mutant in retained[:max_mutants]}
+    kept_sorted = sorted(keep_names)
+    for meta_path in sorted(mutants_dir.rglob("*.py.meta")):
+        data = json.loads(meta_path.read_text())
+        keys = data.get("exit_code_by_key", {})
+        data["exit_code_by_key"] = {
+            key: value for key, value in sorted(keys.items()) if key in keep_names
+        }
+        meta_path.write_text(json.dumps(data))
+    return kept_sorted
+
+
+def limit_mutants_per_target_in_metadata(mutants_dir: Path, max_mutants_per_target: int) -> list[str]:
+    retained, _ = filter_mutants_to_targets(discover_mutants(mutants_dir))
+    keep_names: set[str] = set()
+    per_target_counts: dict[str, int] = {}
+    for mutant in retained:
+        target = normalize_target_id(mutant.source_path, mutant_function_key(mutant.name))
+        if target is None:
+            continue
+        count = per_target_counts.get(target, 0)
+        if count >= max_mutants_per_target:
+            continue
+        per_target_counts[target] = count + 1
+        keep_names.add(mutant.name)
+    kept_sorted = sorted(keep_names)
+    for meta_path in sorted(mutants_dir.rglob("*.py.meta")):
+        data = json.loads(meta_path.read_text())
+        keys = data.get("exit_code_by_key", {})
+        data["exit_code_by_key"] = {
+            key: value for key, value in sorted(keys.items()) if key in keep_names
+        }
+        meta_path.write_text(json.dumps(data))
+    return kept_sorted
+
+
 def _mutmut_main():
     import mutmut.__main__ as mm
 
     return mm
 
 
-def generate_mutants(mutants_dir: Path = MUTANTS_DIR, max_mutants: int | None = None) -> None:
+def generate_mutants(
+    mutants_dir: Path = MUTANTS_DIR,
+    max_mutants: int | None = None,
+    max_mutants_per_target: int | None = None,
+) -> None:
     mm = _mutmut_main()
     original_load_config = mm.load_config
     source_files = source_files_for_targets()
@@ -152,7 +194,10 @@ def generate_mutants(mutants_dir: Path = MUTANTS_DIR, max_mutants: int | None = 
     mutants_dir.mkdir(parents=True, exist_ok=True)
     mm.copy_src_dir()
     mm.create_mutants(1)
-    if max_mutants is not None:
+    if max_mutants_per_target is not None:
+        kept = limit_mutants_per_target_in_metadata(mutants_dir, max_mutants_per_target)
+        print(f"limited mutants per target to {max_mutants_per_target}; kept {len(kept)}")
+    elif max_mutants is not None:
         kept = limit_mutants_in_metadata(mutants_dir, max_mutants)
         print(f"limited mutants to {len(kept)}")
 
@@ -297,13 +342,17 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     generate = sub.add_parser("generate")
     generate.add_argument("--max-mutants", type=int)
+    generate.add_argument("--max-mutants-per-target", type=int)
     score = sub.add_parser("score")
     score.add_argument("--timeout", type=int, default=300)
     score.add_argument("--limit", type=int)
     args = parser.parse_args()
 
     if args.command == "generate":
-        generate_mutants(max_mutants=args.max_mutants)
+        generate_mutants(
+            max_mutants=args.max_mutants,
+            max_mutants_per_target=args.max_mutants_per_target,
+        )
         print("generated mutants")
         return
 

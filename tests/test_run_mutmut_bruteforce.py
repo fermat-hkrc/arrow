@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from run_mutmut_bruteforce import TARGET_IDS, Mutant, MutationResult, MutationSummary, discover_mutants, filter_mutants_to_targets, generate_mutants, limit_mutants_in_metadata, mutant_function_key, normalize_target_id, pytest_command, run_pytest_suite, score_mutants, source_files_for_targets, summarize_results, write_results
+from run_mutmut_bruteforce import TARGET_IDS, Mutant, MutationResult, MutationSummary, discover_mutants, filter_mutants_to_targets, generate_mutants, limit_mutants_in_metadata, limit_mutants_per_target_in_metadata, mutant_function_key, normalize_target_id, pytest_command, run_pytest_suite, score_mutants, source_files_for_targets, summarize_results, write_results
 
 
 def test_target_allowlist_contains_expected_top_level_ids():
@@ -54,6 +54,11 @@ def test_discover_mutants_reads_meta_files(tmp_path: Path):
     ]
 
 
+def test_mutant_function_key_handles_actual_mutmut_name_shapes():
+    assert mutant_function_key("arrow.util.x_is_timestamp__mutmut_1") == "is_timestamp"
+    assert mutant_function_key("arrow.api.x_get__mutmut_1") == "get"
+    assert mutant_function_key("arrow.arrow.xǁArrowǁ_shift__mutmut_1") == "shift"
+
 
 def test_limit_mutants_in_metadata_keeps_only_first_n_retained(tmp_path: Path):
     util_meta = tmp_path / "arrow" / "util.py.meta"
@@ -82,6 +87,43 @@ def test_limit_mutants_in_metadata_keeps_only_first_n_retained(tmp_path: Path):
     arrow_payload = json.loads(arrow_meta.read_text())
     assert sorted(util_payload["exit_code_by_key"].keys()) == [
         "arrow.util.x_is_timestamp__mutmut_1",
+    ]
+    assert sorted(arrow_payload["exit_code_by_key"].keys()) == [
+        "arrow.arrow.xǁArrowǁ_shift__mutmut_1",
+    ]
+
+
+def test_limit_mutants_per_target_in_metadata_caps_each_target(tmp_path: Path):
+    util_meta = tmp_path / "arrow" / "util.py.meta"
+    util_meta.parent.mkdir(parents=True)
+    util_meta.write_text(json.dumps({
+        "exit_code_by_key": {
+            "arrow.util.x_is_timestamp__mutmut_1": 1,
+            "arrow.util.x_is_timestamp__mutmut_2": 1,
+            "arrow.util.x_validate_bounds__mutmut_1": 1,
+            "arrow.util.x_validate_bounds__mutmut_2": 1,
+        }
+    }))
+    arrow_meta = tmp_path / "arrow" / "arrow.py.meta"
+    arrow_meta.write_text(json.dumps({
+        "exit_code_by_key": {
+            "arrow.arrow.xǁArrowǁ_shift__mutmut_1": 1,
+            "arrow.arrow.xǁArrowǁ_shift__mutmut_2": 1,
+        }
+    }))
+
+    kept = limit_mutants_per_target_in_metadata(tmp_path, max_mutants_per_target=1)
+
+    assert kept == [
+        "arrow.arrow.xǁArrowǁ_shift__mutmut_1",
+        "arrow.util.x_is_timestamp__mutmut_1",
+        "arrow.util.x_validate_bounds__mutmut_1",
+    ]
+    util_payload = json.loads(util_meta.read_text())
+    arrow_payload = json.loads(arrow_meta.read_text())
+    assert sorted(util_payload["exit_code_by_key"].keys()) == [
+        "arrow.util.x_is_timestamp__mutmut_1",
+        "arrow.util.x_validate_bounds__mutmut_1",
     ]
     assert sorted(arrow_payload["exit_code_by_key"].keys()) == [
         "arrow.arrow.xǁArrowǁ_shift__mutmut_1",
@@ -222,3 +264,35 @@ def test_generate_mutants_applies_max_mutants_limit(monkeypatch, tmp_path: Path)
     generate_mutants(mutants_dir=tmp_path / "mutants", max_mutants=3)
 
     assert calls == [(tmp_path / "mutants", 3)]
+
+
+def test_generate_mutants_applies_per_target_limit(monkeypatch, tmp_path: Path):
+    class FakeConfig:
+        def __init__(self):
+            self.paths_to_mutate = []
+            self.also_copy = []
+
+    class FakeModule:
+        def __init__(self):
+            self.config = FakeConfig()
+
+        def load_config(self):
+            return self.config
+
+        def ensure_config_loaded(self):
+            self.config = self.load_config()
+
+        def copy_src_dir(self):
+            return None
+
+        def create_mutants(self, workers):
+            return None
+
+    calls = []
+    monkeypatch.setattr("run_mutmut_bruteforce._mutmut_main", lambda: FakeModule())
+    monkeypatch.setattr("run_mutmut_bruteforce.source_files_for_targets", lambda: [Path("arrow/util.py")])
+    monkeypatch.setattr("run_mutmut_bruteforce.limit_mutants_per_target_in_metadata", lambda mutants_dir, n: calls.append((mutants_dir, n)) or [])
+
+    generate_mutants(mutants_dir=tmp_path / "mutants", max_mutants_per_target=2)
+
+    assert calls == [(tmp_path / "mutants", 2)]
