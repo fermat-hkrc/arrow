@@ -225,8 +225,17 @@ def write_results(results: list[MutationResult], summary: MutationSummary, outpu
         f"- tested: {summary.tested}",
         f"- mutation score: {summary.mutation_score:.2f}%",
         "",
-        "## Survivors",
+        "## Targets",
     ]
+    target_counts: dict[str, int] = {}
+    for result in results:
+        normalized = normalize_target_id(result.source_path, mutant_function_key(result.name))
+        if normalized in TARGET_IDS:
+            target_counts[normalized] = target_counts.get(normalized, 0) + 1
+    for target in sorted(target_counts):
+        lines.append(f"- {target}: {target_counts[target]} mutant(s)")
+    lines.append("")
+    lines.append("## Survivors")
     survivors = [r for r in results if r.status == "survived"]
     if survivors:
         for result in survivors:

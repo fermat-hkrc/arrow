@@ -115,15 +115,19 @@ def test_score_mutants_restores_file_after_each_mutant(monkeypatch, tmp_path: Pa
     assert summary.killed == 1
 
 
-def test_write_results_creates_json_and_markdown(tmp_path: Path):
-    results = [MutationResult("shift__mutmut_1", Path("arrow/arrow.py"), "survived", 0.5, "ok")]
-    summary = MutationSummary(total=1, killed=0, survived=1, timeout=0, error=0, tested=1, mutation_score=0.0)
+
+def test_write_results_includes_only_targets_that_have_results(tmp_path: Path):
+    results = [
+        MutationResult("is_timestamp__mutmut_1", Path("arrow/util.py"), "survived", 0.5, "ok"),
+        MutationResult("shift__mutmut_1", Path("arrow/arrow.py"), "killed", 0.4, "boom"),
+    ]
+    summary = MutationSummary(total=2, killed=1, survived=1, timeout=0, error=0, tested=2, mutation_score=50.0)
 
     write_results(results, summary, output_dir=tmp_path)
 
-    payload = json.loads((tmp_path / "mutmut-pbt-mutation-results.json").read_text())
     report = (tmp_path / "mutmut-pbt-mutation-score.md").read_text()
 
-    assert payload["summary"]["survived"] == 1
-    assert "shift__mutmut_1" in report
-    assert "mutation score" in report
+    assert "## Targets" in report
+    assert "util.is_timestamp" in report
+    assert "Arrow.shift" in report
+    assert "Arrow.week" not in report
