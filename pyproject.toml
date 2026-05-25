@@ -51,6 +51,7 @@ test = [
     "pytest-mock",
     "pytz==2025.2",
     "simplejson==3.*",
+    "mutmut",
 ]
 doc = [
     "doc8",
@@ -67,3 +68,13 @@ Issues = "https://github.com/arrow-py/arrow/issues"
 
 [tool.flit.module]
 name = "arrow"
+
+[tool.mutmut]
+source_paths = ["arrow"]
+also_copy = [
+    "arrow/",
+    "tests/test_pbt.py",
+]
+do_not_mutate = [
+    "tests/**",
+]
