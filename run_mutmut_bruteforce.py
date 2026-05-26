@@ -71,7 +71,7 @@ TARGET_IDS = {
 MUTANTS_DIR = Path("mutants")
 RESULTS_JSON = Path("pbt-docs/mutmut-pbt-mutation-results.json")
 REPORT_MD = Path("pbt-docs/mutmut-pbt-mutation-score.md")
-TEST_FILE = Path("tests/test_pbt.py")
+TEST_FILE = Path("/Users/thanhtoantnt/self-evolve/pbt-benchmark/arrow/tests/test_pbt_arrow.py")
 
 
 @dataclass(frozen=True)
